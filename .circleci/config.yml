@@ -1,0 +1,80 @@
+version: 2.1
+
+orbs:
+  kubernetes: smartnews/kubernetes@3
+
+orb_dockers:
+  kubernetes: &orb_docker_kubernetes 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/circleci-orbs/kubernetes:3
+
+workflow_filters:
+  dev-filter: &dev-filter
+    filters:
+      branches:
+        only: develop
+  master-filter: &master-filter
+    filters:
+      branches:
+        only: master
+
+commands:
+  setup_docker_login:
+    description: "Login to AWS ECR"
+    parameters:
+      repo:
+        type: string
+      region:
+        type: string
+    steps:
+      - run:
+          name: Login to AWS ECR
+          command: |
+            aws ecr get-login-password --region << parameters.region >> | docker login --username AWS --password-stdin << parameters.repo >>
+
+  deploy:
+    description: "Deploy using kustomization and Skaffold"
+    parameters:
+      profile:
+        type: string
+      repo:
+        type: string
+      spaas_region:
+        type: string
+      aws_region:
+        type: string
+      env:
+        type: string
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - setup_docker_login:
+          region: << parameters.aws_region >>
+          repo: << parameters.repo >>
+      - run:
+          name: Deploy using kustomization
+          command: |
+            $(spaas skaffold configure --system n8n -A << parameters.env >> --region << parameters.spaas_region >> -C common-0)
+            skaffold run --profile << parameters.profile >> --default-repo << parameters.repo >>
+
+jobs:
+  deploy-master:
+    docker:
+      - image: *orb_docker_kubernetes
+        environment:
+          PIPELINE_SK_USE_CLUSTER_PROFILE: true
+          PIPELINE_SK_SKIP_VERSION_CONFIG: true
+    steps:
+      - deploy:
+          profile: common-0-prd-tokyo
+          repo: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com
+          aws_region: ap-northeast-1
+          spaas_region: tokyo
+          env: prd
+
+workflows:
+  build_and_deploy:
+    jobs:
+      - deploy-dev:
+          <<: *dev-filter
+      - deploy-master:
+          <<: *master-filter

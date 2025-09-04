@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n
+  labels:
+    app: n8n
+data:
+  # Database configuration - will be overridden by environment-specific patches
+  # DB_TYPE will be set per environment (sqlite for dev, postgresdb for prd)
+  
+  # External hooks configuration
+  EXTERNAL_HOOK_FILES: "/opt/n8n-hooks/hooks.js"
+  
+  # OAuth2 Proxy integration
+  N8N_AUTH_EXCLUDE_ENDPOINTS: "rest/oauth2-credential/callback"
+  N8N_FORWARD_AUTH_HEADER: "x-auth-request-email"
+  N8N_FORWARD_AUTH_USER_HEADER: "x-auth-request-user"
+  N8N_FORWARD_AUTH_GROUPS_HEADER: "x-auth-request-groups"
+  
+  # n8n configuration
+  N8N_BASIC_AUTH_ACTIVE: "false"
+  N8N_LOG_LEVEL: "info"
+  N8N_DIAGNOSTICS_ENABLED: "false"
+  N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+  GENERIC_TIMEZONE: "Asia/Tokyo"
+  
+  # Execution and push configuration
+  EXECUTIONS_MODE: "regular"
+  N8N_PUSH_BACKEND: "websocket"
