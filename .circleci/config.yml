@@ -74,7 +74,5 @@ jobs:
 workflows:
   build_and_deploy:
     jobs:
-      - deploy-dev:
-          <<: *dev-filter
       - deploy-master:
           <<: *master-filter
