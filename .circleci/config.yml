@@ -86,7 +86,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
       - build-image:
           requires:
             - build-image-approval
