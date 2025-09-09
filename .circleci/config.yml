@@ -40,7 +40,7 @@ jobs:
       DIFY_API_TAG: "1.8.0"
       DIFY_WEB_TAG: "1.8.0"
       DIFY_SANDBOX_TAG: "0.2.12"
-      DIFY_PLUGIN_DAEMON_TAG: "0.2.0"   # update to local repository
+      DIFY_PLUGIN_DAEMON_TAG: "0.2.0-local"   # update to local repository
       WEAVIATE_TAG: "1.19.0"
       REDIS_TAG: "6-alpine"
       POSTGRES_TAG: "15-alpine"
