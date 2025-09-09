@@ -105,7 +105,7 @@ jobs:
       - run:
           name: Configure kubectl
           command: |
-            $(spaas skaffold configure -e prd -s dataplatform)
+            $(spaas skaffold configure -A prd -s dataplatform -C common-0)
       - run:
           name: Apply kustomize
           command: |
@@ -129,9 +129,9 @@ workflows:
             branches:
               only:
                 - main
-      - mirror-images:
-          requires:
-            - build-image-approval
+      # - mirror-images:
+      #    requires:
+      #      - build-image-approval
       - deploy:
           requires:
-            - mirror-images
+            - build-image-approval
