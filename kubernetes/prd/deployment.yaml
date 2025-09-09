@@ -1,77 +1,396 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: n8n
-  labels:
-    app: n8n
-    component: main
+  name: dify-api
+  namespace: dataplatform
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dify-api } }
+  template:
+    metadata: { labels: { app: dify-api } }
+    spec:
+      containers:
+        - name: api
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-api
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: dify-common-env }
+            - secretRef: { name: dify-secrets }
+          env:
+            - name: MODE
+              value: "api"
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: REDIS_PASSWORD } }
+            - name: SECRET_KEY
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: SECRET_KEY } }
+          ports: [ { containerPort: 5001, name: http } ]
+          volumeMounts:
+            - name: plugin-storage
+              mountPath: /app/api/storage
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+      volumes:
+        - name: plugin-storage
+          persistentVolumeClaim: { claimName: dify-plugin-daemon-pvc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-worker
+  namespace: dataplatform
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dify-worker } }
+  template:
+    metadata: { labels: { app: dify-worker } }
+    spec:
+      containers:
+        - name: worker
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-api
+          envFrom:
+            - configMapRef: { name: dify-common-env }
+            - secretRef: { name: dify-secrets }
+          env:
+            - name: MODE
+              value: "worker"
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: DB_PASSWORD } }
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: REDIS_PASSWORD } }
+          ports: [ { containerPort: 5001, name: http } ]
+          volumeMounts:
+            - name: plugin-storage
+              mountPath: /app/api/storage
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+      volumes:
+        - name: plugin-storage
+          persistentVolumeClaim: { claimName: dify-plugin-daemon-pvc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-worker-beat
+  namespace: dataplatform
 spec:
   replicas: 1
-  selector:
-    matchLabels:
-      app: n8n
-      component: main
+  selector: { matchLabels: { app: dify-worker-beat } }
   template:
-    metadata:
-      labels:
-        app: n8n
-        component: main
+    metadata: { labels: { app: dify-worker-beat } }
     spec:
-      securityContext:
-        fsGroup: 1000
-      serviceAccountName: n8n
       containers:
-      - name: n8n
-        image: n8n/n8n
-        imagePullPolicy: IfNotPresent
-        ports:
-        - name: http
-          containerPort: 5678
-          protocol: TCP
-        env:
-        - name: N8N_PORT
-          value: "5678"
-        - name: N8N_PROTOCOL
-          value: "http"
-        - name: NODE_ENV
-          value: "production"
-        - name: EXECUTIONS_MODE
-          value: "regular"
-        - name: N8N_ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: n8n
-              key: encryption_key
-        envFrom:
-        - configMapRef:
-            name: n8n
-        - secretRef:
-            name: n8n
-        volumeMounts:
-        - name: data
-          mountPath: /home/node/.n8n
-        resources:
-          requests:
-            cpu: 500m
-            memory: 1Gi
-          limits:
-            cpu: 2000m
-            memory: 4Gi
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: http
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-        readinessProbe:
-          httpGet:
-            path: /healthz
-            port: http
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 5
+        - name: worker-beat
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-api
+          envFrom:
+            - configMapRef: { name: dify-common-env }
+            - secretRef: { name: dify-secrets }
+          env:
+            - name: MODE
+              value: "beat"
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: REDIS_PASSWORD } }
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-web
+  namespace: dataplatform
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dify-web } }
+  template:
+    metadata: { labels: { app: dify-web } }
+    spec:
+      containers:
+        - name: web
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-web
+          envFrom:
+            - configMapRef: { name: dify-web-env }
+            - configMapRef: { name: dify-common-env }
+            - secretRef: { name: dify-secrets }
+          ports: [ { containerPort: 3000, name: http } ]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-db
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-db } }
+  template:
+    metadata: { labels: { app: dify-db } }
+    spec:
+      containers:
+        - name: postgres
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-postgres
+          envFrom:
+            - configMapRef: { name: dify-common-env }
+          env:
+            - name: POSTGRES_USER
+              valueFrom: { configMapKeyRef: { name: dify-common-env, key: DB_USERNAME } }
+            - name: POSTGRES_DB
+              valueFrom: { configMapKeyRef: { name: dify-common-env, key: DB_DATABASE } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: POSTGRES_PASSWORD } }
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          ports: [ { containerPort: 5432, name: pg } ]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
       volumes:
-      - name: data
-        persistentVolumeClaim:
-          claimName: n8n-data
+        - name: pgdata
+          persistentVolumeClaim: { claimName: dify-postgres-pvc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-redis
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-redis } }
+  template:
+    metadata: { labels: { app: dify-redis } }
+    spec:
+      containers:
+        - name: redis
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-redis
+          command: [ "redis-server", "--requirepass", "$(REDIS_PASSWORD)" ]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: REDIS_PASSWORD } }
+          volumeMounts:
+            - name: redisdata
+              mountPath: /data
+          ports: [ { containerPort: 6379, name: redis } ]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+      volumes:
+        - name: redisdata
+          persistentVolumeClaim: { claimName: dify-redis-pvc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-sandbox
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-sandbox } }
+  template:
+    metadata: { labels: { app: dify-sandbox } }
+    spec:
+      containers:
+        - name: sandbox
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-sandbox
+          env:
+            - name: API_KEY
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: SANDBOX_API_KEY } }
+            - name: GIN_MODE
+              value: "release"
+            - name: WORKER_TIMEOUT
+              value: "15"
+            - name: ENABLE_NETWORK
+              value: "true"
+            - name: SANDBOX_PORT
+              value: "8194"
+          ports: [ { containerPort: 8194, name: http } ]
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-plugin-daemon
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-plugin-daemon } }
+  template:
+    metadata: { labels: { app: dify-plugin-daemon } }
+    spec:
+      containers:
+        - name: plugin-daemon
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-plugin-daemon
+          envFrom:
+            - configMapRef: { name: dify-common-env }
+            - secretRef: { name: dify-secrets }
+          env:
+            - name: SERVER_PORT
+              value: "5002"
+            - name: PLUGIN_REMOTE_INSTALLING_PORT
+              value: "5003"
+            - name: DIFY_INNER_API_KEY
+              valueFrom: { secretKeyRef: { name: dify-secrets, key: PLUGIN_DIFY_INNER_API_KEY } }
+          ports:
+            - { containerPort: 5002, name: daemon }
+            - { containerPort: 5003, name: daemon-debug }
+          volumeMounts:
+            - name: plugin-storage
+              mountPath: /app/storage
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+      volumes:
+        - name: plugin-storage
+          persistentVolumeClaim: { claimName: dify-plugin-daemon-pvc }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-ssrf-proxy
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-ssrf-proxy } }
+  template:
+    metadata: { labels: { app: dify-ssrf-proxy } }
+    spec:
+      containers:
+        - name: squid
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-ssrf-proxy
+          volumeMounts:
+            - name: squid-conf
+              mountPath: /etc/squid/squid.conf
+              subPath: squid.conf
+          ports:
+            - { containerPort: 3128, name: http }
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+      volumes:
+        - name: squid-conf
+          configMap:
+            name: dify-ssrf-proxy-conf
+            items:
+              - key: squid.conf
+                path: squid.conf
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-nginx
+  namespace: dataplatform
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: dify-nginx } }
+  template:
+    metadata: { labels: { app: dify-nginx } }
+    spec:
+      containers:
+        - name: nginx
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-nginx
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          ports:
+            - { containerPort: 80, name: http }
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dify-weaviate
+  namespace: dataplatform
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: dify-weaviate } }
+  template:
+    metadata: { labels: { app: dify-weaviate } }
+    spec:
+      containers:
+        - name: weaviate
+          image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:dify-weaviate
+          env:
+            - { name: PERSISTENCE_DATA_PATH, value: "/var/lib/weaviate" }
+            - { name: AUTHENTICATION_APIKEY_ENABLED, value: "true" }
+            - { name: AUTHENTICATION_APIKEY_ALLOWED_KEYS, valueFrom: { secretKeyRef: { name: dify-secrets, key: WEAVIATE_API_KEY } } }
+            - { name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED, value: "false" }
+          ports: [ { containerPort: 8080, name: http } ]
+          volumeMounts:
+            - { name: weaviate-data, mountPath: /var/lib/weaviate }
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+      volumes:
+        - name: weaviate-data
+          persistentVolumeClaim: { claimName: dify-weaviate-pvc }

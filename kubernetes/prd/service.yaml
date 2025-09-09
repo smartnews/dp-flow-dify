@@ -1,17 +1,122 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: n8n
-  labels:
-    app: n8n
-    component: main
+  name: api
+  namespace: dataplatform
 spec:
+  selector: { app: dify-api }
+  ports: [ { name: http, port: 5001, targetPort: http } ]
   type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker
+  namespace: dataplatform
+spec:
+  selector: { app: dify-worker }
+  ports: [ { name: http, port: 5001, targetPort: http } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-beat
+  namespace: dataplatform
+spec:
+  selector: { app: dify-worker-beat }
+  ports: [ { name: http, port: 5001, targetPort: http } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: dataplatform
+spec:
+  selector: { app: dify-web }
+  ports: [ { name: http, port: 3000, targetPort: http } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: dataplatform
+spec:
+  selector: { app: dify-db }
+  ports: [ { name: pg, port: 5432, targetPort: pg } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: dataplatform
+spec:
+  selector: { app: dify-redis }
+  ports: [ { name: redis, port: 6379, targetPort: redis } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox
+  namespace: dataplatform
+spec:
+  selector: { app: dify-sandbox }
+  ports: [ { name: http, port: 8194, targetPort: http } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin-daemon
+  namespace: dataplatform
+spec:
+  selector: { app: dify-plugin-daemon }
   ports:
-    - port: 80
-      targetPort: http
-      protocol: TCP
-      name: http
-  selector:
-    app: n8n
-    component: main
+    - { name: daemon, port: 5002, targetPort: daemon }
+    - { name: daemon-debug, port: 5003, targetPort: daemon-debug }
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssrf-proxy
+  namespace: dataplatform
+spec:
+  selector: { app: dify-ssrf-proxy }
+  ports: [ { name: http, port: 3128, targetPort: http } ]
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: dataplatform
+spec:
+  selector: { app: dify-nginx }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate
+  namespace: dataplatform
+spec:
+  selector: { app: dify-weaviate }
+  ports: [ { name: http, port: 8080, targetPort: http } ]
+  type: ClusterIP

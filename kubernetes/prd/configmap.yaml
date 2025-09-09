@@ -1,29 +1,90 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: n8n
-  labels:
-    app: n8n
+  name: dify-common-env
+  namespace: dataplatform
 data:
-  # Database configuration - will be overridden by environment-specific patches
-  # DB_TYPE will be set per environment (sqlite for dev, postgresdb for prd)
-  
-  # External hooks configuration
-  EXTERNAL_HOOK_FILES: "/opt/n8n-hooks/hooks.js"
-  
-  # OAuth2 Proxy integration
-  N8N_AUTH_EXCLUDE_ENDPOINTS: "rest/oauth2-credential/callback"
-  N8N_FORWARD_AUTH_HEADER: "x-auth-request-email"
-  N8N_FORWARD_AUTH_USER_HEADER: "x-auth-request-user"
-  N8N_FORWARD_AUTH_GROUPS_HEADER: "x-auth-request-groups"
-  
-  # n8n configuration
-  N8N_BASIC_AUTH_ACTIVE: "false"
-  N8N_LOG_LEVEL: "info"
-  N8N_DIAGNOSTICS_ENABLED: "false"
-  N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
-  GENERIC_TIMEZONE: "Asia/Tokyo"
-  
-  # Execution and push configuration
-  EXECUTIONS_MODE: "regular"
-  N8N_PUSH_BACKEND: "websocket"
+  # web 访问域名（供 web/nginx 拼接）
+  APP_WEB_URL: "http://dify.your.domain"
+  CONSOLE_API_URL: "http://dify.your.domain/v1"
+  APP_API_URL: "http://dify.your.domain/v1"
+  SERVICE_API_URL: "http://dify.your.domain/v1"
+
+  # Core env (从 compose 精简且保持默认)
+  DEPLOY_ENV: "PRODUCTION"
+  LOG_LEVEL: "INFO"
+  DIFY_BIND_ADDRESS: "0.0.0.0"
+  DIFY_PORT: "5001"
+  SERVER_WORKER_CLASS: "gevent"
+  GUNICORN_TIMEOUT: "360"
+
+  # DB / Redis（host with service name）
+  DB_HOST: "db"
+  DB_PORT: "5432"
+  DB_USERNAME: "postgres"
+  DB_DATABASE: "dify"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # vector store
+  VECTOR_STORE: "weaviate"
+  WEAVIATE_ENDPOINT: "http://weaviate:8080"
+
+  # Celery & 其它内部依赖
+  CELERY_BACKEND: "redis"
+  BROKER_USE_SSL: "false"
+  CELERY_BROKER_URL: "redis://:$(REDIS_PASSWORD)@redis:6379/1"
+  CODE_EXECUTION_ENDPOINT: "http://sandbox:8194"
+  PLUGIN_DIFY_INNER_API_URL: "http://api:5001"
+  PLUGIN_REMOTE_INSTALL_HOST: "plugin-daemon"
+  PLUGIN_REMOTE_INSTALL_PORT: "5003"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-web-env
+  namespace: dataplatform
+data:
+  NEXT_TELEMETRY_DISABLED: "0"
+  MARKETPLACE_API_URL: "https://marketplace.dify.ai"
+  MARKETPLACE_URL: "https://marketplace.dify.ai"
+  PM2_INSTANCES: "2"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-nginx-conf
+  namespace: dataplatform
+data:
+  nginx.conf: |
+    worker_processes  auto;
+    events { worker_connections  10240; }
+    http {
+      client_max_body_size 100m;
+      sendfile on;
+      upstream api_up { server api:5001; }
+      upstream web_up { server web:3000; }
+      server {
+        listen 80;
+        server_name _;
+        location /v1/ { proxy_pass http://api_up/; proxy_set_header Host $host; }
+        location / { proxy_pass http://web_up/; proxy_set_header Host $host; }
+      }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dify-ssrf-proxy-conf
+  namespace: dataplatform
+data:
+  squid.conf: |
+    http_port 3128
+    cache deny all
+    access_log none
+    cache_log /dev/null
+    pid_filename /var/run/squid.pid

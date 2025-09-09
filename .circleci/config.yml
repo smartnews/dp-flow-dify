@@ -4,78 +4,108 @@ orbs:
   kubernetes: smartnews/kubernetes@2
   aws-cli: circleci/aws-cli@2.0.3
 
-orb_dockers:
-  kubernetes: &orb_docker_kubernetes 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/circleci-orbs/kubernetes:3
-
 executors:
+  docker-small:
+    docker:
+      - image: cimg/base:stable
   kubernetes:
     docker:
-      - image: *orb_docker_kubernetes
+      - image: 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/circleci-orbs/kubernetes:3
 
-common:
-  setup-variables: &setup-variables
-    name: Setup variables
-    command: |
-      mkdir ~/.aws
-      cat << EOF > ~/.aws/config
-      [prd]
-      output = json
-      region = ap-northeast-1
-      EOF
-      cat << EOF > ~/.aws/credentials
-      [prd]
-      aws_access_key_id = ${AWS_ACCESS_KEY_ID}
-      aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
-      EOF
+commands:
+  setup-prd-variables:
+    steps:
+      - run:
+          name: Setup prd variables
+          command: |
+            echo "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> $BASH_ENV
+            echo "export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> $BASH_ENV
+            echo "export EKS_CLUSTER_NAME=common-0" >> $BASH_ENV
+            export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+            export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
 
-  setup-prd-variables: &setup-prd-variables
-    name: Setup prd variables
-    command: |
-      echo "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> $BASH_ENV
-      echo "export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> $BASH_ENV
-      echo "export EKS_CLUSTER_NAME=common-0" >> $BASH_ENV
-      export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-
-  setup-eks: &setup-eks
-    name: Setup EKS
-    command: aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME} --region ap-northeast-1
-        skaffold run --profile << parameters.profile >> --default-repo << parameters.repo >>
+  ecr-login:
+    steps:
+      - run:
+          name: Login ECR
+          command: |
+            aws ecr get-login-password --region ap-northeast-1 \
+              | docker login --username AWS --password-stdin 165463520094.dkr.ecr.ap-northeast-1.amazonaws.com
 
 jobs:
-  build-image:
-    docker:
-      - image: circleci/python:3.7.5
+  mirror-images:
+    executor: docker-small
+    resource_class: medium
+    environment:
+      DIFY_API_TAG: "1.8.0"
+      DIFY_WEB_TAG: "1.8.0"
+      DIFY_SANDBOX_TAG: "0.2.12"
+      DIFY_PLUGIN_DAEMON_TAG: "0.2.0"   # update to local repository
+      WEAVIATE_TAG: "1.19.0"
+      REDIS_TAG: "6-alpine"
+      POSTGRES_TAG: "15-alpine"
+      NGINX_TAG: "latest"
+      SQUID_TAG: "latest"
+      ECR: "165463520094.dkr.ecr.ap-northeast-1.amazonaws.com"
+      ECR_NS: "datahub-brain"
     steps:
       - checkout
       - setup_remote_docker:
           docker_layer_caching: true
-      - run: *setup-prd-variables
-      - run: pip install awscli --user
+      - run: sudo apt-get update && sudo apt-get -y install jq
+      - run: pip install --user awscli
+      - setup-prd-variables
+      - ecr-login
       - run:
-          name: Build image
+          name: Mirror public images to ECR
           command: |
-            docker build -f docker/Dockerfile -t datahub-brain:openai .
-      - run:
-          name: Push image to ECR
-          command: |
-            aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin https://165463520094.dkr.ecr.ap-northeast-1.amazonaws.com
-            ECR_IMAGE="165463520094.dkr.ecr.ap-northeast-1.amazonaws.com/datahub-brain:openai"
-            echo ${ECR_IMAGE}
-            docker tag "datahub-brain:openai" "${ECR_IMAGE}"
-            docker push "${ECR_IMAGE}"
-            echo "${ECR_IMAGE} is successfully pushed to remote repository."
+            set -euo pipefail
+            mirror () {
+              SRC="$1"; DST="$2"
+              echo "Pull $SRC"
+              docker pull "$SRC"
+              echo "Tag  $SRC -> $DST"
+              docker tag "$SRC" "$DST"
+              echo "Push $DST"
+              docker push "$DST"
+            }
 
-  deploy-image:
+            # Dify core
+            mirror "langgenius/dify-api:${DIFY_API_TAG}"              "${ECR}/${ECR_NS}:dify-api"
+            mirror "langgenius/dify-web:${DIFY_WEB_TAG}"              "${ECR}/${ECR_NS}:dify-web"
+            mirror "langgenius/dify-sandbox:${DIFY_SANDBOX_TAG}"      "${ECR}/${ECR_NS}:dify-sandbox"
+            mirror "langgenius/dify-plugin-daemon:${DIFY_PLUGIN_DAEMON_TAG}" "${ECR}/${ECR_NS}:dify-plugin-daemon"
+
+            # Infra
+            mirror "postgres:${POSTGRES_TAG}"                         "${ECR}/${ECR_NS}:dify-postgres"
+            mirror "redis:${REDIS_TAG}"                               "${ECR}/${ECR_NS}:dify-redis"
+            mirror "nginx:${NGINX_TAG}"                               "${ECR}/${ECR_NS}:dify-nginx"
+            mirror "ubuntu/squid:${SQUID_TAG}"                        "${ECR}/${ECR_NS}:dify-ssrf-proxy"
+            mirror "semitechnologies/weaviate:${WEAVIATE_TAG}"        "${ECR}/${ECR_NS}:dify-weaviate"
+
+            echo "All images mirrored to ${ECR}/${ECR_NS}: dify-*"
+
+  deploy:
     executor: kubernetes
     resource_class: large
     steps:
       - checkout
       - run:
-          name: Apply to k8s
+          name: Configure kubectl
           command: |
-            $(spaas skaffold configure -A prd -s dataplatform -C common-0)
-            kubectl rollout restart deployment datahub-brain -n dataplatform
+            aws eks update-kubeconfig --name common-0 --region ap-northeast-1
+      - run:
+          name: Apply kustomize
+          command: |
+            kustomize build ./kubernetes/prd | kubectl apply -f -
+      - run:
+          name: Wait for rollouts
+          when: always
+          command: |
+            set -e
+            for d in api worker worker-beat web db redis sandbox plugin-daemon ssrf-proxy nginx weaviate; do
+              kubectl -n dataplatform rollout status deploy/dify-$d --timeout=180s || true
+            done
 
 workflows:
   version: 2
@@ -87,9 +117,9 @@ workflows:
             branches:
               only:
                 - main
-      - build-image:
+      - mirror-images:
           requires:
             - build-image-approval
-      - deploy-image:
+      - deploy:
           requires:
-            - build-image      
+            - mirror-images
