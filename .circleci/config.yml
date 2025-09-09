@@ -52,8 +52,20 @@ jobs:
       - checkout
       - setup_remote_docker:
           docker_layer_caching: true
-      - run: sudo apt-get update && sudo apt-get -y install jq
-      - run: pip install --user awscli
+      - run:
+          name: Install deps (jq, curl, unzip)
+          command: |
+            set -euo pipefail
+            sudo apt-get update
+            sudo apt-get -y install jq curl unzip
+      - run:
+          name: Install AWS CLI v2
+          command: |
+            set -euo pipefail
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip -q awscliv2.zip
+            sudo ./aws/install --update
+            aws --version
       - setup-prd-variables
       - ecr-login
       - run:
